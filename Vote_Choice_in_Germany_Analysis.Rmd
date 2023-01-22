@@ -1,0 +1,1493 @@
+---
+title: | 
+    | Assignment 2 - Vote Choice in Germany
+    | Statistical Inference and Modelling - SIM
+    | 1st Semester 2022
+author: "Ander Barrio Campos, Odysseas Kyparissis"
+date: "`r Sys.Date()`"
+geometry: margin=2cm
+fontsize: 12pt
+line-height: 1.5
+output: 
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: no
+    number_sections: true
+    fig_width: 6
+    fig_height: 4
+    fig_caption: true
+classoption: a4paper
+editor_options: 
+  chunk_output_type: console
+header-includes:
+- \pagenumbering{gobble}
+---
+
+\newpage
+
+```{=latex}
+\setcounter{tocdepth}{5}
+\tableofcontents
+```
+```{=tex}
+\newpage
+\pagenumbering{arabic}
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Clear plots from the R plots view:
+if(!is.null(dev.list())) dev.off()
+
+# Clean workspace - No variables at the current workspace
+rm(list=ls())
+
+# Setting working directory
+setwd("C:/Users/odyky/Desktop/SIM_Assignment2")
+# setwd("/Users/anderbarriocampos/Desktop/UPC/SIM/Assignment2")
+
+options(contrasts=c("contr.treatment","contr.treatment")) #Baseline category reparametrization
+
+# Libraries loading
+library(ggplot2)
+library(GGally)
+library(car)
+library(lmtest)
+library(chemometrics)
+library(FactoMineR)
+library(corrplot)
+library(effects)
+library(AER)
+library(MASS)
+library(egg)
+library(nnet)
+library(MNLpred)
+library(ROCR)
+library(pROC)
+library(stringr)
+```
+
+\newpage
+
+# Explanatory Data Analysis - EDA
+
+## Loading Voting Data
+
+In this part of the report, setting up the working environment and loading of the data into R are taking place. Additionally, a first look at the summary of the raw voting choice in Germany data set is taken.
+
+```{r read}
+load("gles.RData")
+summary(gles)
+```
+
+## Data Types
+
+To begin with, the types of the raw variables contained into the data set are being checked. It is clear, that the raw data set consists of 5 numerical variables and 1 categorical. On the one hand, based on the raw data types, the numeric variables are the following: *egoposition_immigration*, *ostwest*, *political_interest*, *income* and *gender*, while the categorical one is variable *vote*. On the other hand, if page 3 of the assignment statement (subsection *Variables*) is taken into account, all of the numerical variables correspond to qualitative concepts. In more detail, variables *egoposition_immigration, political_interest* and *income* (*income-satisfaction)* correspond to ordered factors, while *ostwest* and *gender* variables are binary ones. In the following sections, all the numerical variables will be transformed into labeled factors (ordered or not).
+
+```{r rawtypes, include=FALSE}
+typeof(gles$vote)
+typeof(gles$egoposition_immigration)
+typeof(gles$ostwest)
+typeof(gles$political_interest)
+typeof(gles$income)
+typeof(gles$gender)
+```
+
+## Checking for Missing Data
+
+To continue with, a check for missing data is conducted on the raw data set. Considering the summary of the data set presented before, there are no NA values in the variables of the data set. The same conclusion is derived when a check is completed for each individual variable.
+
+```{r missingData, include=FALSE}
+ll <- which( gles$vote=="NA"); length(ll)
+ll <- which( gles$egoposition_immigration=="NA"); length(ll)
+ll <- which( gles$ostwest=="NA"); length(ll)
+ll <- which( gles$political_interest=="NA"); length(ll)
+ll <- which( gles$income=="NA"); length(ll)
+ll <- which( gles$gender=="NA"); length(ll)
+```
+
+## Checking for Duplicates
+
+By checking if there are duplicate rows inside the raw data set, the result indicates that a total number of 359 occurrences of duplicates exist.
+
+```{r checkingDuplicates}
+dupli <- duplicated(gles); dupli_ind <- which(dupli); length(dupli_ind)
+```
+
+With the following command, a closer look can be taken into the values of the first 5 duplicate rows (for space saving reasons).
+
+```{r presentDuplicate}
+gles[dupli_ind,][1:5,]
+```
+
+By taking a closer look at the duplicates, one can understand that, it is logical people with the same characteristics to vote for the same party during the elections. For that reason, the duplicates are not removed or treated, but a new factor will be created in the dataset indicating if a row is a duplicate or not.
+
+```{r createDuplicateFactor, include=FALSE}
+gles$f.duplicate<-0; gles$f.duplicate[dupli_ind]<-1
+gles$f.duplicate<-factor(gles$f.duplicate,labels=c("No.Duplicate","Yes.Duplicate"))
+```
+
+## Creating Factors for Qualitative Variables
+
+In this subsection of EDA, all qualitative variables are transformed into labeled factors (nominal, ordinal and binary). All variables of the raw data set, as mentioned before, correspond to categorical ones. First of all, their unique values are presented below:
+
+```{r uniqueValeusOfVariables}
+unique(gles$vote); unique(gles$egoposition_immigration); unique(gles$ostwest)
+unique(gles$political_interest); unique(gles$income); unique(gles$gender)
+```
+
+The next step includes the creation of the labeled factors based on the unique values of the categorical variables. Following the practice below, in case a categorical variable includes NA values, they will be transformed into zeros, which is an incorrect approach. In this case, once missing values check indicated that there are no missing data, proceeding with this practice does not result in erroneous data.
+
+Additionally, it is crucial to mention here that the following variables were transformed into ordered factors: *income, political_interest* and *egoposition_immigration.* Moreover *gender, vote* and *ostwest* variables were transformed to nominal factors and finally a new nominal factor was generated, named *political_orientation.* This new variable discretize the 6 German parties into three political wings with labels *Left_Wing, Center_Wing* and *Right_Wing* respectively. In order to accomplish this discretization, page 3 of the assignment statement (subsection *Variables -* indicating the character of each political party: left, center, right) was taken into account one more time.
+
+```{r ostwestToFactor, echo=FALSE}
+gles$f.eastGermany<-0; gles$f.eastGermany[gles$ostwest=="1"]<-1
+gles$f.eastGermany<-factor(gles$f.eastGermany,
+                           labels=c("No.EastGermany","Yes.EastGermany"))
+```
+
+```{r genderToFactor, echo=FALSE}
+gles$f.gender<-0; gles$f.gender[gles$gender=="1"]<-1
+gles$f.gender<-factor(gles$f.gender, labels=c("M","F"))
+```
+
+```{r incomeToOrderedFactor, echo=FALSE}
+gles$f.income <- ordered(gles$income, levels=c(0, 1, 2, 3, 4),
+                         labels=c("Low.Sat", "Low_to_Medium.Sat",
+                                  "Medium.Sat", "Medium_to_High.Sat",
+                                  "High.Sat"))
+```
+
+```{r politicalInterestToOrderedFactor, echo=FALSE}
+gles$f.political_interest <- ordered(gles$political_interest,
+                                     levels=c(0, 1, 2, 3, 4),
+                                     labels=c("Low.Inter",
+                                              "Low_to_Medium.Inter",
+                                              "Medium.Inter",
+                                              "Medium_to_High.Inter",
+                                              "High.Inter"))
+```
+
+```{r egoPositionToOrderedFactor, echo=FALSE}
+gles$f.egoposition_immigration <- ordered(gles$egoposition_immigration,
+                                     levels=c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+                                     labels=c("0_Very_Open_Level.Imm",
+                                              "1_Level.Imm",
+                                              "2_Level.Imm",
+                                              "3_Level.Imm",
+                                              "4_Level.Imm",
+                                              "5_Neutral_Level.Imm",
+                                              "6_Level.Imm",
+                                              "7_Level.Imm",
+                                              "8_Level.Imm",
+                                              "9_Level.Imm",
+                                              "10_Very_Restrictive_Level.Imm"))
+```
+
+```{r voteToFactor, echo=FALSE}
+gles$f.vote<-as.factor(gles$vote)
+```
+
+```{r voteToPoliticalOrientationFactor, echo=FALSE}
+gles$f.political_orientation<-0 #center
+gles$f.political_orientation[gles$vote=="Gruene" | gles$vote=="LINKE"]<-1 #left
+gles$f.political_orientation[gles$vote=="AfD"]<-2 #right
+gles$f.political_orientation<-factor(gles$f.political_orientation,
+                                     labels=c("Center_Wing","Left_Wing",
+                                              "Right_Wing"))
+```
+
+In the Polytomous Modelling chapter of the report the generation of new factors for those variables is taking place as well.
+
+## Factor Conversion Check
+
+After checking both manually and by executing commands on the terminal, the conversion of the categorical and numerical variables to factors has been completed correctly. In addition, while the categorical variables *vote*, *ostwest* and *gender* have been transformed into labeled factors, their old versions are discarded from the data frame (in those cases it is sure that their numerical representation does not provide any extra information). The remaining variables were not discarded in order to check if better results could be obtained by using their numerical representation in higher powers (poly function). Below the new structure of the data frame is presented.
+
+```{r removingCHRVariables, echo=FALSE}
+gles$vote <- NULL #delete vote
+gles$ostwest <- NULL #delete ostwest
+gles$gender <- NULL #delete gender
+```
+
+```{r glesSumm}
+summary(gles)
+```
+
+## Univariate Descriptive Analysis - UDA
+
+As it is stated in the assignment's statement, but as it was concluded in the previous subsection, data set is unbalanced and it contains individuals who mostly vote for parties belonging in the center wing of politics, followed by left wing and finally left wing respectively. The differences between the numbers of each wing are significant. More details are presented below.
+
+### Descriptive Analysis for Numerical Variables
+
+In this subsection, summary statistics, the standard deviation and histograms are presented for the numerical representation of the variables *egoposition_immigration*, *political_interest* and *income*.
+
+```{r quantitativeData, echo=FALSE}
+quantiData = gles[c('egoposition_immigration', 'political_interest', 'income')]
+#quantiData
+```
+
+### Standard Deviation
+
+```{r standardDeviation}
+lapply(quantiData, sd)
+```
+
+```{r summaries}
+summary(gles$egoposition_immigration)
+summary(gles$political_interest)
+summary(gles$income)
+```
+
+```{r histogramms, echo=FALSE, message=FALSE, warning = F}
+
+hEgo <- ggplot(gles, aes(x=egoposition_immigration)) + 
+  geom_histogram(color="black", fill="#00AFBB")
+
+
+hPoli <-ggplot(gles, aes(x=political_interest)) + 
+  geom_histogram(color="black", fill="#00AFBB")
+
+hIncome <- ggplot(gles, aes(x=income)) + 
+  geom_histogram(color="black", fill="#00AFBB")
+
+ggarrange(hEgo, hPoli, hIncome, 
+          ncol = 1, nrow = 3)
+```
+
+From the histograms, it is clear that those 1000 German citizens show interest in the political elections since most of the observations belong to categories *Medium* to *High.* The same is true for variable *income* which depicts the satisfaction of the citizens with their income. Concerning variable *egoposition_immigration* it can be seen that the plot is close to follow a normal distribution with a slight right skewness. This means that most of the citizens in the data set are *Neutral* concerning immigration while the rest of them are scattered through the rest of the variable levels, with a small trend to follow more open ideas for immigration issues.
+
+In addition, the calculation of Spearman correlation is presented for the numerical variables. In the following graph, it is clear that there is not strong correlation between the numerical representation of the variables *egoposition_immigration, political_interest* and *income*. By checking the correlation matrix the values are extremely low.
+
+```{r corrPlot, echo=FALSE}
+M <- cor(gles[,c(1:3)],method="spearman");M #Non Parametric version
+corrplot(M, method="circle")
+```
+
+### Descriptive Analysis for Categorial Variables
+
+Moreover, bar plots are generated illustrating the content of the variables *ostwest*, *gender* and target variables *vote* and *political_orientation (*new derived factor containing *left*, *center* and *right* wings).
+
+### Bar Plots
+
+```{r barPlots, echo=FALSE, message=FALSE, warning = F}
+gg_east <- ggplot(gles, aes(x = f.eastGermany)) + 
+  geom_bar(fill = "#00AFBB", 
+           color="black") +
+  labs(x = "People Living in East Germany", 
+       y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1))
+
+gg_gender <- ggplot(gles, aes(x = f.gender)) + 
+  geom_bar(fill = "#00AFBB", 
+           color="black") +
+  labs(x = "Gender of Individuals", 
+       y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1))
+
+gg_political_or <- ggplot(gles, aes(x = f.political_orientation)) + 
+  geom_bar(fill = "#00AFBB", 
+           color="black") +
+  labs(x = "Political Orientation (New Vote Variable)", 
+       y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1))
+
+gg_vote <- ggplot(gles, aes(x = f.vote)) + 
+  geom_bar(fill = "#00AFBB", 
+           color="black") +
+  labs(x = "Votes", 
+       y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1))
+
+ggarrange(gg_east, gg_gender, gg_political_or, gg_vote, ncol = 2, nrow = 2)
+```
+
+From the barplots, it is illustrated that most of the observations are from citizens of the Eastern Gemany, while the gender of them are balanced. In addition, there is a huge difference in the numbers of citizens voting for parties in the *center political wing* while a smaller number of them vote for the *left wing* and finally the *right* one. Finally, party wise, the one with the most votes is party *CDU/CSU,* followed by *SPD* with a small difference. At the same time Gruene, LINKE and FDP are pretty close with each other, but with approximately half of the votes of *CDU/CSU* and *SPD.*
+
+## Outliers Detection
+
+```{r calcQFunction, echo=FALSE}
+calcQ <- function(x) {
+  s.x <- summary(x)
+  iqr<-s.x[5]-s.x[2]
+  list(souti=s.x[2]-3*iqr, mouti=s.x[2]-1.5*iqr, min=s.x[1], q1=s.x[2], q2=s.x[3], 
+       q3=s.x[5], max=s.x[6], mouts=s.x[5]+1.5*iqr, souts=s.x[5]+3*iqr ) }
+```
+
+In the following subsections both uni-variate and multivariate outliers will be detected and treated.
+
+### Uni-variate Outliers
+
+To start with, in the following subsection the uni-variate outliers will be detected for the numerical variables: *egoposition_immigration*, *political_interest* and *income* with the respective order. It is crucial to mention here, that only severe outliers were taken into account and not mild ones. Now, concerning variable *egoposition_immigration*, as it is depicted in the boxplot of the variable, outliers do not exist. The same result is derived after trying to detect outliers using the IQR method, which is implemented by function calcQ.
+
+```{r uniOutEgoBoxPlot, message=FALSE, echo=FALSE, fig.height=3, fig.width=6}
+boxplot(gles$egoposition_immigration, main = "Boxplot of Variable Egoposition Inmigration")
+```
+
+```{r uniOutEgoIQR, message=FALSE, echo=FALSE}
+var_out<-calcQ(gles$egoposition_immigration)
+llout_ego<-which((gles$egoposition_immigration<var_out$souti)|(gles$egoposition_immigration>var_out$souts))
+length(llout_ego)
+```
+
+Following by, the same approach is used for variable *political_interest*.
+
+```{r uniOutPoliBoxPlot, message=FALSE, echo=FALSE,fig.height=3, fig.width=6}
+boxplot(gles$political_interest, main = "Boxplot of Variable Political Interest")
+var_out<-calcQ(gles$political_interest)
+llout_political<-which((gles$political_interest<var_out$souti)|(gles$political_interest>var_out$souts))
+length(llout_political)
+```
+
+The results are the same, there are no severe outliers for variable *political_interest* as well. Finally, the outlier detection for the income is taking place.
+
+```{r uniOutIncome, echo=FALSE, fig.height=3, fig.width=6}
+boxplot(gles$income, main = "Boxplot of Variable Income")
+var_out<-calcQ(gles$income)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+abline(h=var_out$mouts,col="red")
+llout_income<-which((gles$income<var_out$souti)|(gles$income>var_out$souts))
+length(llout_income)
+```
+
+In this case, there are extreme outliers for the income variable, which are presented below (only first 10 rows out of 418 in total).
+
+```{r incomeOutliers}
+gles[llout_income,][1:10,]
+table(gles$income)
+```
+
+Additionally, by taking a look at the figure and the table of occurrences for factor variable *income*, it is clear that by using the IQR method in this case, all categories except *Medium_to_High.Sat (level 3)* are considered outliers (13+28+188+189 = 418). For that reason, a new column is generated to indicate the uni-variate outliers for *income.* For now, those outliers are kept into the data set, and in the subsections below, it will be decided if it is necessary to be removed.
+
+```{r incomeOutliersFactor, echo=FALSE}
+gles$f.incomeOutliers<-0;
+gles$f.incomeOutliers[gles$f.income!="Medium_to_High.Sat"]<-1
+gles$f.incomeOutliers<-factor(gles$f.incomeOutliers,
+                           labels=c("No.IncomeOutlier","Yes.IncomeOutlier"))
+```
+
+### Multivariate Outliers
+
+In this subsection, an attempt for the detection of multivariate outliers took place. To start with, the calculation of the Mahalanobis distance is possible only for numerical variables. At this point, at first, an attempt to calculate the Mahalanobis distance for the numerical representation of *egoposition_immigration*, *political_interest* and *income* with a confidence interval of 95% was followed. Due to the fact that those variables create a singular matrix for the calculation of the Mahalanobis distance, its inverse matrix cannot be calculated and in that way an error is thrown. Additionally, an attempt was completed to calculate the distance for all the variables in their raw format (all variables at numerical representation), but the same problem occurred again. The Classical and Robust Mahalanobis distances could be only calculated for the combination of *egoposition_immigration* and *political_interest* variables of the data set. The results are presented in the following figure:
+
+```{r mOutMaha, echo=FALSE}
+#res.mout <- Moutlier(gles[,c(1:3)]) # Throws error -- We tried to calculate it by combining as well the numerical variables we deleted in chunq "removingCHRVariables" but the same problem happened.
+res.mout <- Moutlier(gles[,c(1:2)], quantile = 0.95)
+```
+
+After calculating Mahalanobis distance at a 95% confidence interval, the cut off given is 2.447747.
+
+```{r mOutCutOff, include=FALSE}
+res.mout$cutoff
+```
+
+Then, all the observations which have a classical and a robust distance bigger than this cut off are marked as multivariate outliers (in this case the term *multivariate* refers only to *egoposition_immigration* and *political_interest* variables). After detecting them, a new factor (*f.mout*) is being created in the data set, indicating if an observation belongs to multivariate outliers or not. It can be seen in the final result that 24 observations are marked as multivariate outliers. Further analysis about them will be conducted in the following sections.
+
+```{r mOutPlot, echo=FALSE}
+par(mfrow=c(1,1))
+plot( res.mout$md, res.mout$rd )
+text(res.mout$md, res.mout$rd, labels=rownames(df),adj=1, cex=0.5)
+abline( h=res.mout$cutoff, lwd=2, col="red")
+abline( v=res.mout$cutoff, lwd=2, col="red")
+```
+
+```{r detectMout, echo=FALSE}
+llmout <- which((res.mout$md > res.mout$cutoff) 
+                 & (res.mout$rd > res.mout$cutoff))
+gles$f.mout <- 0
+gles$f.mout[llmout] <- 1
+gles$f.mout <- factor( gles$f.mout, labels = c("MvOut.No","MvOut.Yes"))
+```
+
+```{r summaryMout, echo=FALSE}
+summary(gles["f.mout"])
+```
+
+## Profiling of Target Variable(s)
+
+The goal of this chapter is to discover the relationships between the explanatory variables of the data set and the target variable(s). In order to do so the calculation and presentation of interactions between the target and explanatory variables by using the library FactoMineR and Boxplots is completed.
+
+Moreover, with the usage of the library FactoMineR and specifically the function catdes, which calculate the dependencies of a categorical variable, it is able to check the dependencies of the target variable(s) with the explanatory variables of the data set. At first, the dependency between the target variable *f.vote* and the rest of the variables will take place, followed by the same analysis for the new derived target variable *f.political_orientation*. Profiling is completed only by using the factor representation of the explanatory variables and the results are presented in the Appendix at the same subsection.
+
+The main conclusions derived from profiling the target variables are presented here, starting from target variable *f.vote* following by the second target variable *f.political_orientation*. For variable *f.vote* the main conclusions are:
+
+-   Party ***AfD** (right wing)* is strongly correlated with citizens who have high values for variable *egoposition_imigration* (8-10) meaning they have more far-right beliefs, they are mainly *males* with *low_political_interest* and *low_to_medium* salary satisfaction.
+
+-   Party **CDU/CSU** *(center-right)* has strong relationship with people who are achieve levels 5 to 7 of *egoposition_imigration* meaning that they are mainly neutral with a slight orientation to *right beliefs* for immigration issues, while they present *medium political interest* and *medium salary satisfaction*.
+
+-   Party **FDP** *(center-right)* have strong connection levels 0, 2 and 6 of *egoposition_imigration,* which is confusing. In this case, the conclusion is that maybe the data set does not contain data that will provide quality explanatory power for predicting the voting of this party.
+
+-   Party **Gruene** *(left)* shows strong relation with level 2 of variable *egoposition_imigration,* which means that they are open for immigration issues. Additionally, most of the citizens voting this party are females with *medium_to_high political interest.*
+
+-   Party **LINKE** *(left)*is mainly described by observations containing values of *No.EastGermany* for variable *f.eastGermany,* level 0 *(Very Open)* for variable *egoposition_imigration* and *medium income satisfaction*. Also, value Yes.EastGermany appear a lot for this party, so it can concluded that variable *f.eastGermany* will not provide explanatory power for predicting this party.
+
+For variable *f.political_orientation* the main conclusions are:
+
+-   **Center Political Wing** is mainly described by level 5 of variable *egoposition_imigration (Neutral),* people from East Germany (*Yes.EastGermany for variable f.eastGermany), high income satisfaction* and *medium political interest.*
+
+-   **Left Political Wing** is strongly connected with levels 0, 2 and 3 of variable *egoposition_imigration* meaning that it is open to immigration issues, and *high salary satisfaction* (Not sure if this makes sense, but we have no information for demographics and salaries of people voting left parties in Germany)*.*
+
+-   **Right Political Wing** is mainly connected with levels 8 and 10 for *egoposition_imigration (*far-right beliefs). Also, those observations are strongly connected with observations of *males,* with value No.EastGermany for *f.eastGermany* variable, with *low political interest* and *low to medium salary satisfaction.*
+
+Concerning the profiling of target variables with quality metrics of the data set, like number of missing values, number of errors in data, number of univariate or multivariate outliers, is not included in detail while the data set do not contain missing or erroneous data. For the correlation of the target variables with outliers some results are presented during the profiling done by using FactoMineR (presented in Appendix) but the results are not so insightful.
+
+# Polytomous Modelling
+
+In this section of the report, the creation and comparison of multiple models for the prediction of probabilities for voting each party or each political wing is completed. For the sake of this assignment, the goal is to provide *three final models* following the approaches: nominal response, ordinal response and hierarchical approach. In order to do so, for nominal response model, the variable *f.vote* containing the 6 different parties will be used. For ordinal response model, *f.vote factor* will be transformed to an ordinal factor creating an ordinal relationship from far-left parties to far-right ones. More specifically, the order is the following *(f.vote_ord) -* the specific order was chosen based on page 3 of assignment's statement:
+
+-   LINKE \> Gruene \> SPD \> FDP \> CDU/CSU \> AfD
+
+```{r createVoteOrd, echo=FALSE}
+gles$f.vote_ord <- factor(gles$f.vote, ordered = TRUE, levels = c("LINKE", "Gruene", "SPD", "FDP", "CDU/CSU", "AfD")) 
+# This transformation takes place here and not in the EDA section of the report, for the reason that it was not so clear, that it was necessary, while reading the assignment statement at first. After f.vote factor was converted to an ordinal one with this command, it was checked that the conversion was completed correctly.
+```
+
+Finally, for the hierarchical approach the target variable will be *f.political_orientation* and in this case 2 nested binary outcome models will be created.
+
+Before proceeding to modeling chapters, the split of the data set into training and test set is necessary and is conducted here.
+
+```{r splitTrainTestSet, echo=FALSE}
+set.seed(150996)
+
+#use 70% of dataset as training set and 30% as test set
+sample <- sample(c(TRUE, FALSE), nrow(gles), replace=TRUE, prob=c(0.7,0.3))
+train  <- gles[sample,]
+test   <- gles[!sample,]
+```
+
+## Nominal Polytomous Modeling
+
+### Comparison of Variables' Numerical and Categorical Representation
+
+As a first step in this subsection, it is necessary to check if variables *egoposition_immigration*, *political_interest* and *income* provide better explanatory power when they are used as numerical or categorical variables*.* In order to do so, the following approach has been used:
+
+1.  Train a nominal polytomous target model containing only one of those variables in a continuous representation.
+
+2.  Train a nominal polytomous target model containing only one of those variables in a continuous representation, including second, cube and quadratic exponent of the variable.
+
+3.  Train a nominal polytomous target model containing only one of those variables in a categorical representation.
+
+4.  Derive new factor for each variable by combining some levels of the already existed factors, and train a new model with it. The new levels are chosen below, based on the allEffects plots.
+
+5.  Compare those 6 models and the NULL model for each variable by using anova for nested models reduction of deviance, Anova and AIC.
+
+6.  Keep each variable's representation that provide the best results in each case.
+
+```{r newImmFactor, echo=FALSE}
+gles$f.Imm<-0
+ll<-which(gles$egoposition_immigration %in% c(1,2,3))
+gles$f.Imm[ll]<-1
+ll<-which(gles$egoposition_immigration %in% c(4,5,6))
+gles$f.Imm[ll]<-2
+ll<-which(gles$egoposition_immigration %in% c(7,8,9))
+gles$f.Imm[ll]<-3
+ll<-which(gles$egoposition_immigration %in% c(10))
+gles$f.Imm[ll]<-4
+gles$f.Imm <- factor(gles$f.Imm,labels=c("low", "low_medium", "medium", "medium_high", "high"))
+gles$f.Imm <- factor(gles$f.Imm, ordered = TRUE, levels = c("low", "low_medium", "medium", "medium_high", "high"))
+```
+
+```{r newPolIntFactor, echo=FALSE}
+gles$f.PolInt<-0
+ll<-which(gles$political_interest %in% c(1,2,3))
+gles$f.PolInt[ll]<-1
+ll<-which(gles$political_interest %in% c(4))
+gles$f.PolInt[ll]<-2
+gles$f.PolInt <- factor(gles$f.PolInt,labels=c("low", "medium", "high"))
+gles$f.PolInt <- factor(gles$f.PolInt, ordered = TRUE, levels = c("low", "medium", "high"))
+```
+
+```{r newIncSatFactor, echo=FALSE}
+gles$f.IncSat<-0
+ll<-which(gles$income %in% c(1))
+gles$f.IncSat[ll]<-1
+ll<-which(gles$income %in% c(2,3))
+gles$f.IncSat[ll]<-2
+ll<-which(gles$income %in% c(4))
+gles$f.IncSat[ll]<-3
+gles$f.IncSat <- factor(gles$f.IncSat,labels=c("low", "low_to_medium","medium", "high"))
+gles$f.IncSat <- factor(gles$f.IncSat, ordered = TRUE, levels = c("low", "low_to_medium","medium", "high"))
+```
+
+```{r splitTrainTestSet2, echo=FALSE}
+set.seed(150996)
+
+#use 70% of dataset as training set and 30% as test set
+sample <- sample(c(TRUE, FALSE), nrow(gles), replace=TRUE, prob=c(0.7,0.3))
+train  <- gles[sample,]
+test   <- gles[!sample,]
+```
+
+The results of the analysis are presented in the respective subsection of the Appendix for space saving reasons. Finally, during modelling procedure the above-mentioned variables will be used in the following forms, respectively:
+
+```{r baselineNullModel, include=FALSE}
+nm0 <-multinom(f.vote~1, data=train) # Null model
+```
+
+```{r egoImModels, include=FALSE}
+nm1_imm_con <- multinom(f.vote~ egoposition_immigration, data=train)
+nm1_imm_con_sq <- multinom(f.vote~ poly(egoposition_immigration,2), data=train)
+nm1_imm_con_cb <- multinom(f.vote~ poly(egoposition_immigration,3), data=train)
+nm1_imm_con_qd <- multinom(f.vote~ poly(egoposition_immigration,4), data=train)
+nm1_imm_cat <- multinom(f.vote~ f.egoposition_immigration, data=train)
+nm1_imm_cat_new <- multinom(f.vote~ f.Imm, data=train)
+```
+
+-   ***egoposition_immigration**:* the new derived factor *f.Imm* will be used to represent this variable. In this case, the reduction in deviance is approximately equal to 172 units, the second biggest reduction after 224 units belonging to the original factor of the variable containing 10 levels. To continue with, by checking the explanatory power of the variable with Anova function, one can understand that it provides explanatory power to the model, in all of the forms (Appendix). Finally, by checking the allEffects plots for all the 5 models and the AIC comparison of them presented below, it is clear that *f.Imm* representation provides the better model.
+
+    ```{r egoImAIC, echo=FALSE}
+    nm0$dev - nm1_imm_cat$dev
+    nm0$dev - nm1_imm_cat_new$dev
+    AIC(nm0, nm1_imm_con, nm1_imm_con_sq, 
+        nm1_imm_con_cb, nm1_imm_con_qd, 
+        nm1_imm_cat, nm1_imm_cat_new)
+    ```
+
+    ```{r polIntModels, include=FALSE}
+    nm1_polint_con <- multinom(f.vote~ political_interest, data=train)
+    nm1_polint_con_sq <- multinom(f.vote~ poly(political_interest,2), data=train)
+    nm1_polint_con_cb <- multinom(f.vote~ poly(political_interest,3), data=train)
+    nm1_polint_con_qd <- multinom(f.vote~ poly(political_interest,4), data=train)
+    nm1_polint_cat <- multinom(f.vote~ f.political_interest, data=train)
+    nm1_polint_cat_new <- multinom(f.vote~ f.PolInt, data=train)
+    ```
+
+-   ***political_interest***: poly(political_interest,2), even if the squared form of this variable does not provide significant explanatory power (null model had pretty much the same predictability). For picking this representation of this variable the same approach as before has been followed. AIC values for the 5 models are presented here, the remaining analysis can be found in Appendix. The only reason for using this variable in the squared form is that function Anova, indicates that the squared form of *political_interest* has a p-value smaller of 0.05, thus null hypothesis can be rejected.
+
+    ```{r polIntAIC, echo=FALSE}
+    AIC(nm0, nm1_polint_con, 
+        nm1_polint_con_sq, nm1_polint_con_cb, 
+        nm1_polint_con_qd, nm1_polint_cat, nm1_polint_cat_new)
+    # nm1_polint_con_sq is better, but in general 
+    # politican interest does not provide predictability power, 
+    # null model is better in most of the cases. 
+    # Political interest will be used in squared form.
+    ```
+
+    ```{r IncSatModels, include=FALSE}
+    nm1_inc_con <- multinom(f.vote~ income, data=train)
+    nm1_inc_con_sq <- multinom(f.vote~ poly(income,2), data=train)
+    nm1_inc_con_cb <- multinom(f.vote~ poly(income,3), data=train)
+    nm1_inc_con_qd <- multinom(f.vote~ poly(income,4), data=train)
+    nm1_inc_cat <- multinom(f.vote~ f.income, data=train)
+    nm1_inc_cat_new <- multinom(f.vote~ f.IncSat, data=train)
+    ```
+
+-   ***income*** : the continuous representation (*income*) of first order will be used to represent this variable.
+
+    ```{r IncSatAIC, echo=FALSE}
+    AIC(nm0, nm1_inc_con, nm1_inc_con_sq, 
+        nm1_inc_con_cb, nm1_inc_con_qd, 
+        nm1_inc_cat, nm1_inc_cat_new)
+    # nm1_inc_con is better
+    ```
+
+### Final Nominal Model
+
+Once multiple different combinations of main effects and interactions of factors and the squared form of the numerical variable have been tested, the final model is presented below.
+
+```{r nominalModelTraining, include=FALSE}
+nm1 <-multinom(f.vote~ 
+                 (poly(political_interest,2) + income)*
+                 (f.Imm +
+                 f.eastGermany +
+                 f.gender)
+                 ,data= train)
+summary(nm1)
+nm_final <- step(nm1)
+```
+
+```{r finalNominalModel}
+summary(nm_final)
+```
+
+From the summary of the final nominal model, after executing the step function on the model containing all main effects and interactions of the factors and the numerical variables it can be concluded that the formula contains only the main effects of factors *f.Imm, f.eastGermany, f.gender*, the squared form of the numerical representation of variable *political_interest* and finally the first order of variable *income (numerical representation).* Concerning the target variable *f.vote,* the party ***AfD*** is being used as the baseline category and then all the odds for the remaining parties are calculated based on this baseline category, as we have seen it in theory and labs sessions. The following plots indicate how the explanatory variables fluctuate throuhgout the different parties of the target variable. By the allEffects plot it is clear that the available explanatory variables are not enough to distinguish well the voting preferences of the German citizens.
+
+```{r allEffectsNominalFinal1, echo=FALSE}
+x<-allEffects(nm_final)
+par(mfrow=c(1,1))
+plot(x[1],ask=FALSE,
+       multiline=T, main="Effects of Political Interest", ci.style="band")
+```
+
+```{r allEffectsNominalFinal2, echo=FALSE}
+par(mfrow=c(1,1))
+plot(x[2],ask=FALSE,
+       multiline=T, main="Effects of Income", ci.style="band")
+```
+
+```{r allEffectsNominalFinal3, echo=FALSE}
+par(mfrow=c(1,1))
+plot(x[3],ask=FALSE,
+       multiline=T, main="Effects of Egoposition Immigration", ci.style="band")
+```
+
+```{r allEffectsNominalFinal4, echo=FALSE}
+par(mfrow=c(1,1))
+plot(x[4],ask=FALSE,
+       multiline=T, main="Effects of East Germany", ci.style="band")
+```
+
+```{r allEffectsNominalFinal5, echo=FALSE}
+par(mfrow=c(1,1))
+plot(x[5],ask=FALSE,
+       multiline=T, main="Effects of Gender", ci.style="band")
+```
+
+Finally, validation measures and graphs are generated for training and testing set here. Mainly, the confusion matrix has been used to calculate the accuracy, recall and precision of the model, while AUC plots have been generated as well. It can be seen that both training and testing set *FDP*, *Gruene* and *LINKE* cannot be predicted correctly. For those parties we need more variables that could distinguish them from the other parties.
+
+#### Confusion Matrix and Metrics for Training Set
+
+Here the confusion matrix and the appropriate metrics are presented for the training set.
+
+```{r nominalModelMeasuresTrain, echo=FALSE}
+tt<-table(predict(nm_final),train$f.vote);tt
+
+acc<-"Accuracy:";acc;train_accuracy <- 100*sum(diag(tt))/sum(tt); train_accuracy
+
+prec<-"Precision:";prec;train_precision <- diag(tt) / rowSums(tt); train_precision
+
+mr<-"MissClassification Rate:";mr;train_mr <- 100-train_accuracy; train_mr
+
+```
+
+Moreover, the plot below depicts the distribution of the predicted probabilities for the training set.
+
+```{r histOfProb, echo=FALSE}
+party_probs <- predict(nm_final, type="probs")
+hist(party_probs)
+```
+
+#### Confusion Matrix and Metrics for Testing Set
+
+Here the confusion matrix and the appropriate metrics are presented for the testing set.
+
+```{r nominalModelMeasuresTest, echo=FALSE}
+tt_test<-table(predict(nm_final, newdata = test),test$f.vote);tt_test
+
+acc<-"Accuracy:";acc;test_accuracy <- 100*sum(diag(tt_test))/sum(tt_test); test_accuracy
+
+prec<-"Precision:";prec;test_precision <- diag(tt_test) / rowSums(tt_test); test_precision
+
+mr<-"MissClassification Rate:";mr;test_mr <- 100-test_accuracy; test_mr
+```
+
+## Ordinal Polytomous Modeling
+
+### Comparison of Variables' Numerical and Categorical Representation
+
+In this chapter, target variable will be *f.vote_ord* which contains the parties in an ordered factor starting from far-left parties to far-right ones. The same approach that has already been followed for nominal models will be applied here as well, in order to generate the optimal model based on the available explanatory variables. The baseline category in this case is party *LINKE* and it can be seen from the table of the new target variable. Consequently, all odds and cumulative probabilities will be calculated by the model, taking party *LINKE* as the first reference value of the target variable and continuing with the order indicated by the table below.
+
+```{r voteOrdBaseline}
+table(train$f.vote_ord)
+```
+
+```{r baselineNullModelOrd, include=FALSE}
+om0 <- polr(f.vote_ord ~1, data=train) # Null model
+```
+
+The inclusion of different variables and the comparison of the models is taking place in the Appendix for space saving reasons. Below the final model and the validation phase are presented.
+
+```{r egoImModelsOrd, include=FALSE}
+om1_imm_con <- polr(f.vote_ord~ egoposition_immigration, data=train)
+om1_imm_con_sq <- polr(f.vote_ord~ poly(egoposition_immigration,2), data=train)
+om1_imm_con_cb <- polr(f.vote_ord~ poly(egoposition_immigration,3), data=train)
+om1_imm_con_qd <- polr(f.vote_ord~ poly(egoposition_immigration,4), data=train)
+om1_imm_cat <- polr(f.vote_ord~ f.egoposition_immigration, data=train)
+om1_imm_cat_new <- polr(f.vote_ord~ f.Imm, data=train)
+```
+
+From the reduction of deviance and the comparison of the AIC for the different representations of the variable ***egoposition_immigration**,* the same conclusions are derived with the analysis for the Nominal Models. Thus, again variable *egoposition_immigration* will be used with the format of the new vector generated (*f.Imm*). The results are presented here:
+
+```{r}
+om0$dev - om1_imm_cat$dev
+om0$dev - om1_imm_cat_new$dev
+```
+
+```{r, echo=FALSE}
+AIC(om0, om1_imm_con, om1_imm_con_sq, 
+    om1_imm_con_cb, om1_imm_con_qd, 
+    om1_imm_cat, om1_imm_cat_new)
+```
+
+```{r polIntModelsOrd, include=FALSE}
+om1_polint_con <- polr(f.vote_ord~ political_interest, data=train)
+om1_polint_con_sq <- polr(f.vote_ord~ poly(political_interest,2), data=train)
+om1_polint_con_cb <- polr(f.vote_ord~ poly(political_interest,3), data=train)
+om1_polint_con_qd <- polr(f.vote_ord~ poly(political_interest,4), data=train)
+om1_polint_cat <- polr(f.vote_ord~ f.political_interest, data=train)
+om1_polint_cat_new <- polr(f.vote_ord~ f.PolInt, data=train)
+```
+
+Moreover, for variable ***political_interest**,* as shown below, the lowest AIC value is achieved for the squared form of the numerical representation of the variable, which is approximately the same with the AIC achieved by the new factor generated. Nevertheless, in this case Anova function does not indicate that any of those forms of the variable provide any explanatory power. Thus, in the following analysis, it is anticipated that when full model (with all effects and interactions) will be given as input to the step function will lead to the deletion of this variable.
+
+```{r polIntAICOrd, echo=FALSE}
+AIC(om0, om1_polint_con, 
+    om1_polint_con_sq, om1_polint_con_cb, 
+    om1_polint_con_qd, om1_polint_cat, om1_polint_cat_new)
+# om1_polint_con_sq is better, but in general 
+# politican interest does not provide predictability power, 
+# null model is better in most of the cases. 
+# Political interest will be used in squared form.
+```
+
+```{r IncSatModelsOrd, include=FALSE}
+om1_inc_con <- polr(f.vote_ord~ income, data=train)
+om1_inc_con_sq <- polr(f.vote_ord~ poly(income,2), data=train)
+om1_inc_con_cb <- polr(f.vote_ord~ poly(income,3), data=train)
+om1_inc_con_qd <- polr(f.vote_ord~ poly(income,4), data=train)
+om1_inc_cat <- polr(f.vote_ord~ f.income, data=train)
+om1_inc_cat_new <- polr(f.vote_ord~ f.IncSat, data=train)
+```
+
+Finally, for variable ***income**,* following the same analysis, taking into account the AIC values presented below, the lowest value is achieved when variable *income* is used in a squared form. On the other hand, while using the Anova function (Appendix), only the 1st order and the 2nd order of the variable have a p-value smaller than 0.05. Moreover, when comparing the models of 1st order and 2nd order with anova function, the result indicates that model with 1st order of the variable is better (p-value \> 0.05, simpler model is better). For this reason, the first order of variable *income* will be used in this case.
+
+```{r IncSatAICOrd, echo=FALSE}
+AIC(om0, om1_inc_con, om1_inc_con_sq, 
+    om1_inc_con_cb, om1_inc_con_qd, 
+    om1_inc_cat, om1_inc_cat_new)
+anova(om1_inc_con, om1_inc_con_sq, test="Chisq")
+# om1_inc_con_sq is better with AIC,
+# but anova shows 1st order.
+# Income satisfaction will be used as a 
+# first order numerical variable
+```
+
+### Final Ordinal Model
+
+Once multiple different combinations of main effects and interactions of factors and the squared form of the numerical variable have been tested, the final model is presented below.
+
+```{r ordinalTraining, include=FALSE}
+om1 <-polr(f.vote_ord~ 
+                 (poly(political_interest,2) + income)*
+                 (f.Imm +
+                 f.eastGermany +
+                 f.gender)
+                 ,data= train)
+summary(om1)
+om_final <- step(om1)
+```
+
+```{r finalOrdinalModel, echo=FALSE}
+summary(om_final)
+```
+
+From the summary of the final ordinal model, after executing the step function on the model containing all main effects and interactions of the factors and the numerical variables it can be concluded that the formula contains the main effects of factors *f.Imm, f.gender*, the squared form of the numerical representation of variable *political_interest,* its interaction with factor *f.Imm* and finally the first order of variable *income (numerical representation).* The following plots indicate how the explanatory variables fluctuate throughout the different parties of the target variable. By the allEffects plot it is clear that the available explanatory variables are not enough to distinguish well the all the voting preferences of the German citizens, only specific parties can be differentiated, the far-right and far-left ones.
+
+```{r allEffectsOrdFinal1, echo=FALSE, message=FALSE}
+y<-allEffects(om_final)
+par(mfrow=c(1,1))
+plot(y[1],ask=FALSE,
+       multiline=T, main="Effects of Income", ci.style="band")
+```
+
+```{r allEffectsOrdFinal2, echo=FALSE, message=FALSE}
+par(mfrow=c(1,1))
+plot(y[2],ask=FALSE,
+       multiline=T, main="Effects of Gender", ci.style="band")
+```
+
+```{r allEffectsOrdFinal3, echo=FALSE, message=FALSE}
+par(mfrow=c(1,1))
+plot(y[3],ask=FALSE,
+       multiline=T, main="Effects of Interactions (Imm - PolInt)", ci.style="band")
+```
+
+#### Confusion Matrix and Metrics for Training Set
+
+Here the confusion matrix and the appropriate metrics are presented for the training set.
+
+```{r ordinalModelMeasuresord_train, echo=FALSE}
+ord_tt<-table(predict(om_final),train$f.vote_ord);ord_tt
+
+acc<-"Accuracy:";acc;ord_train_accuracy <- 100*sum(diag(ord_tt))/sum(ord_tt);ord_train_accuracy
+
+
+prec<-"Precision:";prec;ord_train_precision <- diag(ord_tt) / rowSums(ord_tt);ord_train_precision
+
+
+mr<-"MissClassification Rate:";mr;ord_train_mr <- 100-ord_train_accuracy;ord_train_mr
+```
+
+Moreover, the plot below depicts the distribution of the predicted probabilities for the training set.
+
+```{r histOfProbOrd, echo=FALSE}
+ord_party_probs <- predict(om_final, type="probs")
+hist(ord_party_probs)
+```
+
+#### Confusion Matrix and Metrics for Testing Set
+
+Here the confusion matrix and the appropriate metrics are presented for the ord_testing set.
+
+```{r ordinalModelMeasuresord_test, echo=FALSE}
+ord_tt_ord_test<-table(predict(om_final, newdata = test),test$f.vote_ord);ord_tt_ord_test
+
+acc<-"Accuracy:";acc;ord_test_accuracy <- 100*sum(diag(ord_tt_ord_test))/sum(ord_tt_ord_test); ord_test_accuracy
+
+prec<-"Precision:";prec;ord_test_precision <- diag(ord_tt_ord_test) / rowSums(ord_tt_ord_test); ord_test_precision
+
+mr<-"MissClassification Rate:";mr;ord_test_mr <- 100-ord_test_accuracy; ord_test_mr
+```
+
+## Hierarchical Modeling
+
+In order to follow the hierarchical approach, it is necessary to create a new variable which will enable the binary split of the data. By checking the table of the generated factor *f.politicalorientation* it is derived that *665* observations belong to center wing, *266* to left wing and *69* to the right political wing. For that reason the first layer of the hierarchical approach will deal with the separation of the observations to center wing versus others (left and right), and the second layer will deal with the discrimination of observations between left and right*.* Consequently a new factor needs to be created for binary identification of center wing*.* Once the data is split into *Center*\_Wing vs *Left_Right_Wings*, the same approach as before will be followed in order to choose the right representation of the explanatory variables. Due to repetition of the idea, the whole analysis of variables representation will take place in Appendix or the analysis chunks will not be included in this report (include=FALSE). Consequently the final model and its validation metrics will be presented directly.
+
+### First Layer of Hierarchical Approach
+
+```{r centerBinary, echo=FALSE}
+gles$bwing<-ifelse(gles$f.political_orientation=="Center_Wing",1,0)
+gles$bwing<-factor(gles$bwing,labels=c("Left_Right_Wings","Center_Wing"))
+```
+
+```{r splitTrainTestSet3, echo=FALSE}
+set.seed(150996)
+
+#use 70% of dataset as training set and 30% as test set
+sample <- sample(c(TRUE, FALSE), nrow(gles), replace=TRUE, prob=c(0.7,0.3))
+train  <- gles[sample,]
+test   <- gles[!sample,]
+```
+
+```{r bhmodelsEgIm, include=FALSE}
+bhm0 <- glm( bwing ~ 1, family = binomial, data = train)
+bhm1_imm_con <- glm( bwing ~ egoposition_immigration, family = binomial, data = train)
+bhm1_imm_con_sq <- glm( bwing ~ poly(egoposition_immigration,2), family = binomial, data = train)
+bhm1_imm_con_cb <- glm( bwing ~ poly(egoposition_immigration,3), family = binomial, data = train)
+bhm1_imm_con_qd <- glm( bwing ~ poly(egoposition_immigration,4), family = binomial, data = train)
+bhm1_imm_cat <- glm( bwing ~ f.egoposition_immigration, family = binomial, data = train)
+bhm1_imm_cat_new <- glm( bwing ~ f.Imm, family = binomial, data = train)
+```
+
+```{r egoImDevH, include=FALSE}
+bhm0$dev - bhm1_imm_con_sq$dev
+bhm0$dev - bhm1_imm_cat_new$dev
+```
+
+```{r egoImAICH, include=FALSE}
+AIC(bhm0, bhm1_imm_con, bhm1_imm_con_sq, 
+    bhm1_imm_con_cb, bhm1_imm_con_qd, 
+    bhm1_imm_cat, bhm1_imm_cat_new)
+```
+
+```{r bhmodelsPolInt, include=FALSE}
+bhm1_polint_con <- glm( bwing ~ political_interest, family = binomial, data = train)
+bhm1_polint_con_sq <- glm( bwing ~ poly(political_interest,2), family = binomial, data = train)
+bhm1_polint_con_cb <- glm( bwing ~ poly(political_interest,3), family = binomial, data = train)
+bhm1_polint_con_qd <- glm( bwing ~ poly(political_interest,4), family = binomial, data = train)
+bhm1_polint_cat <- glm( bwing ~ f.political_interest, family = binomial, data = train)
+bhm1_polint_cat_new <- glm( bwing ~ f.PolInt, family = binomial, data = train)
+```
+
+```{r polIntAICH, include=FALSE}
+AIC(bhm0, bhm1_polint_con, bhm1_polint_con_sq, 
+    bhm1_polint_con_cb, bhm1_polint_con_qd, 
+    bhm1_polint_cat, bhm1_polint_cat_new)
+```
+
+```{r bhmodelsInc, include=FALSE}
+bhm1_inc_con <- glm( bwing ~ income, family = binomial, data = train)
+bhm1_inc_con_sq <- glm( bwing ~ poly(income,2), family = binomial, data = train)
+bhm1_inc_con_cb <- glm( bwing ~ poly(income,3), family = binomial, data = train)
+bhm1_inc_con_qd <- glm( bwing ~ poly(income,4), family = binomial, data = train)
+bhm1_inc_cat <- glm( bwing ~ f.income, family = binomial, data = train)
+bhm1_inc_cat_new <- glm( bwing ~ f.IncSat, family = binomial, data = train)
+```
+
+```{r incAICH1, include=FALSE}
+AIC(bhm0, bhm1_inc_con, bhm1_inc_con_sq, 
+    bhm1_inc_con_cb, bhm1_inc_con_qd, 
+    bhm1_inc_cat, bhm1_inc_cat_new)
+```
+
+The format of the variables being used for training the first layer of the hierarchical approach is the following: *f.Imm, poly(political_interest,3), income.*
+
+```{r hierarchicalTrainingLayer1, include=FALSE}
+bhm1 <- glm( bwing ~ (poly(political_interest,3) + income)*
+               (f.Imm + f.eastGermany + f.gender), 
+             family = binomial, data = train)
+layer1 <- step(bhm1)
+```
+
+```{r layer1summary, echo=FALSE}
+summary(layer1)
+```
+
+From the Anova analysis of the model and the all effects plot, we can see which explanatory variables are significant for the discrimination of central vs right and left wings, as well as how those variables affect the predictability of the first layer binary model.
+
+```{r, echo=FALSE}
+Anova( layer1, test="LR" )
+plot(allEffects( layer1 ))
+```
+
+### Second Layer of Hierarchical Approach
+
+For the second layer of the hierarchical approach the separation between right and left parties is necessary. The representations of the variables after the analysis for this step is: *poly(egoposition_immigration,4), f.PolInt (null model is better), poly(income,3) (null model is better).*
+
+```{r}
+bh2m0 <- glm( f.political_orientation ~ 1, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+```
+
+```{r bhmodels2EgIm, include=FALSE}
+bhm2_imm_con <- glm( f.political_orientation ~ egoposition_immigration, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_imm_con_sq <- glm( f.political_orientation ~ poly(egoposition_immigration,2), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_imm_con_cb <- glm( f.political_orientation ~ poly(egoposition_immigration,3), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_imm_con_qd <- glm( f.political_orientation ~ poly(egoposition_immigration,4), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_imm_cat <- glm( f.political_orientation ~ f.egoposition_immigration, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_imm_cat_new <- glm( f.political_orientation ~ f.Imm, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+```
+
+```{r egoImDevH1, include=FALSE}
+bh2m0$dev - bhm2_imm_con_sq$dev
+bh2m0$dev - bhm2_imm_cat_new$dev
+```
+
+```{r egoImAICH1, include=FALSE}
+AIC(bh2m0, bhm2_imm_con, bhm2_imm_con_sq, 
+    bhm2_imm_con_cb, bhm2_imm_con_qd, 
+    bhm2_imm_cat, bhm2_imm_cat_new)
+```
+
+```{r bhmodels2PolInt, include=FALSE}
+bhm2_polint_con <- glm( f.political_orientation ~ political_interest, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_polint_con_sq <- glm( f.political_orientation ~ poly(political_interest,2), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_polint_con_cb <- glm( f.political_orientation ~ poly(political_interest,3), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_polint_con_qd <- glm( f.political_orientation ~ poly(political_interest,4), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_polint_cat <- glm( f.political_orientation ~ f.political_interest, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_polint_cat_new <- glm( f.political_orientation ~ f.PolInt, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+```
+
+```{r polIntDevH, include=FALSE}
+bh2m0$dev - bhm2_polint_con_sq$dev
+bh2m0$dev - bhm2_polint_cat_new$dev
+```
+
+```{r polIntAICH1, include=FALSE}
+AIC(bh2m0, bhm2_polint_con, bhm2_polint_con_sq, 
+    bhm2_polint_con_cb, bhm2_polint_con_qd, 
+    bhm2_polint_cat, bhm2_polint_cat_new)
+```
+
+```{r bhmodels2Inc, include=FALSE}
+bhm2_inc_con <- glm( f.political_orientation ~ income, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_inc_con_sq <- glm( f.political_orientation ~ poly(income,2), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_inc_con_cb <- glm( f.political_orientation ~ poly(income,3), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_inc_con_qd <- glm( f.political_orientation ~ poly(income,4), family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_inc_cat <- glm( f.political_orientation ~ f.income, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+bhm2_inc_cat_new <- glm( f.political_orientation ~ f.IncSat, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+```
+
+```{r incDevH, include=FALSE}
+bh2m0$dev - bhm2_inc_con_sq$dev
+bh2m0$dev - bhm2_inc_cat_new$dev
+```
+
+```{r incAICH, include=FALSE}
+AIC(bh2m0, bhm2_inc_con, bhm2_inc_con_sq, 
+    bhm2_inc_con_cb, bhm2_inc_con_qd, 
+    bhm2_inc_cat, bhm2_inc_cat_new)
+```
+
+```{r hierarchicalTrainingLayer2, include=FALSE}
+bhm2 <- glm( f.political_orientation ~ f.Imm + f.PolInt + f.eastGermany + f.gender, family = binomial, data = train[train$bwing=="Left_Right_Wings",])
+layer2 <- step(bhm2)
+```
+
+```{r layer2summary, echo=FALSE}
+summary(layer2)
+```
+
+```{r, echo=FALSE}
+Anova( layer2, test="LR" )
+plot(allEffects( layer2 ))
+```
+
+From the Anova analysis of the second layer of the hierarchical model and the all effects plot, we can see which explanatory variables are significant for the discrimination of right vs left wings, as well as how those variables affect the predictability of the second layer of the binary model.
+
+### Confusion Matrix And Metrics for Training Set
+
+```{r TrainconfusionMatrixHA, echo=FALSE}
+table( ifelse(predict(layer1,type="response")>0.5,"Center_Wing","Left_Right_Wings"),train$bwing)
+train_pred <- factor(ifelse(predict(layer2,type="response")<0.5,"Left_Wing","Right_Wing"),levels=c("Left_Wing","Right_Wing"))
+train_y <- train$f.political_orientation[train$f.political_orientation!="Center_Wing"]
+table(train_pred,train_y)
+acc;100*(182+35+35)/nrow(train)
+```
+
+### Confusion Matrix And Metrics for Testing Set
+
+```{r TestconfusionMatrixHA, echo=FALSE}
+table(ifelse(predict(layer1, newdata = test, type="response")>0.5,"Center_Wing","Left_Right_Wings"), test$bwing)
+test_pred <- factor(ifelse(predict(layer2, newdata = test[test$f.political_orientation !="Center_Wing",], type="response")<0.5,"Left_Wing","Right_Wing"),levels=c("Left_Wing","Right_Wing"))
+test_y <- test$f.political_orientation[test$f.political_orientation!="Center_Wing"]
+table(test_pred,test_y)
+acc;100*(165+68+14)/389
+```
+
+# Best Final Model
+
+In order to select the final best model from the three different approaches, the comparison is completed by using the AIC method and by checking the accuracy of all the models. As it is depicted below, the best model is the Hierarchical Approach.
+
+```{r comparisonOfModelsAIC}
+AIC(nm0,om0,nm_final,om_final)
+AIC(layer1) + AIC(layer2)
+```
+
+Improvements to this work could be accomplished by adding more detailed influential data analysis and retraining of the models without them. In this version of the report influential data plots can be found in the last subsection of the Appendix for the hierarchical approach. Also, better results could be generated by checking in more detail the interactions between all the variables and by creating new factors in all the different approaches followed.
+
+# Appendix
+
+## EDA
+
+## Profiling of Target Variable(s)
+
+In the following plots the levels of variable *f.vote* and *f.political_orientation* follow the structure presented below.
+
+```{r mapLevelsWithNumbers, echo=FALSE}
+target = 'Parties:'; target
+indexes = c(1,2,3,4,5,6); indexes
+levels(gles$f.vote)
+target = 'Political Wings:'; target
+indexes = c(1,2,3); indexes
+levels(gles$f.political_orientation)
+```
+
+```{r visualInteractionsImm, echo=FALSE}
+#egoposition_immigration
+par(mfrow=c(1,1))
+boxplot(f.vote~egoposition_immigration,data=gles,
+        main = "Association of f.vote and Egoposition Immigration")
+```
+
+```{r visualInteractionsPolInt, echo=FALSE}
+#political_interest
+par(mfrow=c(1,1))
+boxplot(f.vote~political_interest,data=gles,
+        main = "Association of f.vote and Political Interest")
+```
+
+```{r visualInteractionsIncome, echo=FALSE}
+#income satisfaction
+par(mfrow=c(1,1))
+boxplot(f.vote~income,data=gles,
+        main = "Association of f.vote and Income Satisfaction")
+```
+
+```{r visualInteractionsEast, echo=FALSE}
+#East Germany
+par(mfrow=c(1,1))
+boxplot(f.vote~f.eastGermany,data=gles,
+        main = "Association of f.vote and East Germany")
+```
+
+```{r visualInteractionsGender, echo=FALSE}
+#Gender
+par(mfrow=c(1,1))
+boxplot(f.vote~f.gender,data=gles,
+        main = "Association of f.vote and Gender")
+```
+
+```{r visualInteractionsImmW, echo=FALSE}
+#egoposition_immigration
+par(mfrow=c(1,1))
+boxplot(f.political_orientation~egoposition_immigration,data=gles,
+        main = "Association of Political Wings and Egoposition Immigration")
+```
+
+```{r visualInteractionsPolIntW, echo=FALSE}
+#political_interest
+par(mfrow=c(1,1))
+boxplot(f.political_orientation~political_interest,data=gles,
+        main = "Association of Political Wings and Political Interest")
+```
+
+```{r visualInteractionsIncomeW, echo=FALSE}
+#income satisfaction
+par(mfrow=c(1,1))
+boxplot(f.political_orientation~income,data=gles,
+        main = "Association of Political Wings and Income Satisfaction")
+```
+
+```{r visualInteractionsEastW, echo=FALSE}
+#East Germany
+par(mfrow=c(1,1))
+boxplot(f.political_orientation~f.eastGermany,data=gles,
+        main = "Association of Political Wings and East Germany")
+```
+
+```{r visualInteractionsGenderW, echo=FALSE}
+#Gender
+par(mfrow=c(1,1))
+boxplot(f.political_orientation~f.gender,data=gles,
+        main = "Association of Political Wings and Gender")
+```
+
+```{r catdesF.Vote}
+res.cat<-catdes(gles, 10)
+res.cat$category
+```
+
+```{r catdesF.political_orientation}
+res.cat<-catdes(gles, 11) #11 for new factor
+res.cat$category
+```
+
+## Modelling
+
+### Nominal Models
+
+Comparison of Variables' Numerical and Categorical Representation for Nominal Models
+
+```{r egoposition_immigrationCheck}
+nm0$dev - nm1_imm_con$dev
+nm0$dev - nm1_imm_con_sq$dev
+nm0$dev - nm1_imm_con_cb$dev
+nm0$dev - nm1_imm_con_qd$dev
+nm0$dev - nm1_imm_cat$dev
+nm0$dev - nm1_imm_cat_new$dev
+
+anova(nm1_imm_con, nm1_imm_con_sq, test="Chisq")
+anova(nm1_imm_con_sq, nm1_imm_con_cb, test="Chisq")
+anova(nm1_imm_con_cb, nm1_imm_con_qd, test="Chisq")
+
+Anova(nm1_imm_con, test="Chisq")
+Anova(nm1_imm_con_sq, test="Chisq")
+Anova(nm1_imm_con_cb, test="Chisq")
+Anova(nm1_imm_con_qd, test="Chisq")
+Anova(nm1_imm_cat, test="Chisq")
+Anova(nm1_imm_cat_new, test="Chisq")
+
+plot(allEffects(nm1_imm_con),ask=FALSE, main="Effects Imm Continuous")
+plot(allEffects(nm1_imm_con_sq),ask=FALSE,main="Effects Imm Continuous Squared")
+plot(allEffects(nm1_imm_con_cb),ask=FALSE, main="Effects Imm Continuous Cubed")
+plot(allEffects(nm1_imm_con_qd),ask=FALSE, main="Effects Imm Continuous Quadratic")
+plot(allEffects(nm1_imm_cat),ask=FALSE, main="Effects Imm Categorical")
+plot(allEffects(nm1_imm_cat_new),ask=FALSE, main="Effects Imm Categorical")
+
+# nm1_imm_con_cb is better concerning AIC but we lose 5 df that compared to new factor. New factor will be used finally.
+#step(nm1_imm_cat_new)
+```
+
+```{r political_interestCheck}
+nm0$dev - nm1_polint_con$dev
+nm0$dev - nm1_polint_con_sq$dev
+nm0$dev - nm1_polint_con_cb$dev
+nm0$dev - nm1_polint_con_qd$dev
+nm0$dev - nm1_polint_cat$dev
+nm0$dev - nm1_polint_cat_new$dev
+
+anova(nm1_polint_con, nm1_polint_con_sq, test="Chisq")
+anova(nm1_polint_con_sq, nm1_polint_con_cb, test="Chisq")
+anova(nm1_polint_con_cb, nm1_polint_con_qd, test="Chisq")
+
+Anova(nm1_polint_con, test="Chisq")
+Anova(nm1_polint_con_sq, test="Chisq")
+Anova(nm1_polint_con_cb, test="Chisq")
+Anova(nm1_polint_con_qd, test="Chisq")
+Anova(nm1_polint_cat, test="Chisq")
+Anova(nm1_polint_cat_new, test="Chisq")
+
+plot(allEffects(nm1_polint_con),ask=FALSE, main="Effects Pol Int Continuous")
+plot(allEffects(nm1_polint_con_sq),ask=FALSE,main="Effects Pol Int Continuous Squared")
+plot(allEffects(nm1_polint_con_cb),ask=FALSE, main="Effects Pol Int Continuous Cubed")
+plot(allEffects(nm1_polint_con_qd),ask=FALSE, main="Effects Pol Int Continuous Quadratic")
+plot(allEffects(nm1_polint_cat),ask=FALSE, main="Effects Pol Int Categorical")
+plot(allEffects(nm1_polint_cat_new),ask=FALSE, main="Effects Pol Int Categorical")
+
+#step(nm1_polint_con_sq)
+```
+
+```{r incomeCheck}
+nm0$dev - nm1_inc_con$dev
+nm0$dev - nm1_inc_con_sq$dev
+nm0$dev - nm1_inc_con_cb$dev
+nm0$dev - nm1_inc_con_qd$dev
+nm0$dev - nm1_inc_cat$dev
+nm0$dev - nm1_inc_cat_new$dev
+
+anova(nm1_inc_con, nm1_inc_con_sq, test="Chisq")
+anova(nm1_inc_con_sq, nm1_inc_con_cb, test="Chisq")
+anova(nm1_inc_con_cb, nm1_inc_con_qd, test="Chisq")
+
+Anova(nm1_inc_con, test="Chisq")
+Anova(nm1_inc_con_sq, test="Chisq")
+Anova(nm1_inc_con_cb, test="Chisq")
+Anova(nm1_inc_con_qd, test="Chisq")
+Anova(nm1_inc_cat, test="Chisq")
+Anova(nm1_inc_cat_new, test="Chisq")
+
+plot(allEffects(nm1_inc_con),ask=FALSE, main="Effects Inc Sat Continuous")
+plot(allEffects(nm1_inc_con_sq),ask=FALSE,main="Effects Inc Sat Continuous Squared")
+plot(allEffects(nm1_inc_con_cb),ask=FALSE, main="Effects Inc Sat Continuous Cubed")
+plot(allEffects(nm1_inc_con_qd),ask=FALSE, main="Effects Inc Sat Continuous Quadratic")
+plot(allEffects(nm1_inc_cat),ask=FALSE, main="Effects Inc Sat Categorical")
+plot(allEffects(nm1_inc_cat_new),ask=FALSE, main="Effects Inc Sat Categorical")
+
+#step(nm1_imm_cat_new)
+```
+
+### Ordinal Models
+
+Comparison of Variables' Numerical and Categorical Representation for Ordinal Models
+
+```{r egoposition_immigrationCheckOrd}
+om0$dev - om1_imm_con$dev
+om0$dev - om1_imm_con_sq$dev
+om0$dev - om1_imm_con_cb$dev
+om0$dev - om1_imm_con_qd$dev
+
+anova(om1_imm_con, om1_imm_con_sq, test="Chisq")
+anova(om1_imm_con_sq, om1_imm_con_cb, test="Chisq")
+anova(om1_imm_con_cb, om1_imm_con_qd, test="Chisq")
+
+Anova(om1_imm_con, test="Chisq")
+Anova(om1_imm_con_sq, test="Chisq")
+Anova(om1_imm_con_cb, test="Chisq")
+Anova(om1_imm_con_qd, test="Chisq")
+Anova(om1_imm_cat, test="Chisq")
+Anova(om1_imm_cat_new, test="Chisq")
+
+plot(allEffects(om1_imm_con),ask=FALSE, main="Effects Imm Continuous")
+plot(allEffects(om1_imm_con_sq),ask=FALSE,main="Effects Imm Continuous Squared")
+plot(allEffects(om1_imm_con_cb),ask=FALSE, main="Effects Imm Continuous Cubed")
+plot(allEffects(om1_imm_con_qd),ask=FALSE, main="Effects Imm Continuous Quadratic")
+plot(allEffects(om1_imm_cat),ask=FALSE, main="Effects Imm Categorical")
+plot(allEffects(om1_imm_cat_new),ask=FALSE, main="Effects Imm Categorical")
+
+# om1_imm_con_cb is better concerning AIC but we lose 5 df that compared to new factor. New factor will be used finally.
+#step(om1_imm_cat_new)
+```
+
+```{r political_interestCheckOrd}
+om0$dev - om1_polint_con$dev
+om0$dev - om1_polint_con_sq$dev
+om0$dev - om1_polint_con_cb$dev
+om0$dev - om1_polint_con_qd$dev
+om0$dev - om1_polint_cat$dev
+om0$dev - om1_polint_cat_new$dev
+
+anova(om1_polint_con, om1_polint_con_sq, test="Chisq")
+anova(om1_polint_con_sq, om1_polint_con_cb, test="Chisq")
+anova(om1_polint_con_cb, om1_polint_con_qd, test="Chisq")
+
+Anova(om1_polint_con, test="Chisq")
+Anova(om1_polint_con_sq, test="Chisq")
+Anova(om1_polint_con_cb, test="Chisq")
+Anova(om1_polint_con_qd, test="Chisq")
+Anova(om1_polint_cat, test="Chisq")
+Anova(om1_polint_cat_new, test="Chisq")
+
+plot(allEffects(om1_polint_con),ask=FALSE, main="Effects Pol Int Continuous")
+plot(allEffects(om1_polint_con_sq),ask=FALSE,main="Effects Pol Int Continuous Squared")
+plot(allEffects(om1_polint_con_cb),ask=FALSE, main="Effects Pol Int Continuous Cubed")
+plot(allEffects(om1_polint_con_qd),ask=FALSE, main="Effects Pol Int Continuous Quadratic")
+plot(allEffects(om1_polint_cat),ask=FALSE, main="Effects Pol Int Categorical")
+plot(allEffects(om1_polint_cat_new),ask=FALSE, main="Effects Pol Int Categorical")
+```
+
+```{r incomeCheckOrd}
+om0$dev - om1_inc_con$dev
+om0$dev - om1_inc_con_sq$dev
+om0$dev - om1_inc_con_cb$dev
+om0$dev - om1_inc_con_qd$dev
+om0$dev - om1_inc_cat$dev
+om0$dev - om1_inc_cat_new$dev
+
+
+anova(om1_inc_con_sq, om1_inc_con_cb, test="Chisq")
+anova(om1_inc_con_cb, om1_inc_con_qd, test="Chisq")
+
+Anova(om1_inc_con, test="Chisq")
+Anova(om1_inc_con_sq, test="Chisq")
+Anova(om1_inc_con_cb, test="Chisq")
+Anova(om1_inc_con_qd, test="Chisq")
+Anova(om1_inc_cat, test="Chisq")
+Anova(om1_inc_cat_new, test="Chisq")
+
+plot(allEffects(om1_inc_con),ask=FALSE, main="Effects Inc Sat Continuous")
+plot(allEffects(om1_inc_con_sq),ask=FALSE,main="Effects Inc Sat Continuous Squared")
+plot(allEffects(om1_inc_con_cb),ask=FALSE, main="Effects Inc Sat Continuous Cubed")
+plot(allEffects(om1_inc_con_qd),ask=FALSE, main="Effects Inc Sat Continuous Quadratic")
+plot(allEffects(om1_inc_cat),ask=FALSE, main="Effects Inc Sat Categorical")
+plot(allEffects(om1_inc_cat_new),ask=FALSE, main="Effects Inc Sat Categorical")
+```
+
+### Hierarchical Models
+
+```{r egoposition_immigrationCheckH}
+bhm0$dev - bhm1_imm_con$dev
+bhm0$dev - bhm1_imm_con_sq$dev
+bhm0$dev - bhm1_imm_con_cb$dev
+bhm0$dev - bhm1_imm_con_qd$dev
+
+anova(bhm1_imm_con, bhm1_imm_con_sq, test="Chisq")
+anova(bhm1_imm_con_sq, bhm1_imm_con_cb, test="Chisq")
+anova(bhm1_imm_con_cb, bhm1_imm_con_qd, test="Chisq")
+
+Anova(bhm1_imm_con, test="Wald")
+Anova(bhm1_imm_con_sq, test="Wald")
+Anova(bhm1_imm_con_cb, test="Wald")
+Anova(bhm1_imm_con_qd, test="Wald")
+Anova(bhm1_imm_cat, test="Wald")
+Anova(bhm1_imm_cat_new, test="Wald")
+
+plot(allEffects(bhm1_imm_con),ask=FALSE, main="Effects Imm Continuous")
+plot(allEffects(bhm1_imm_con_sq),ask=FALSE,main="Effects Imm Continuous Squared")
+plot(allEffects(bhm1_imm_con_cb),ask=FALSE, main="Effects Imm Continuous Cubed")
+plot(allEffects(bhm1_imm_con_qd),ask=FALSE, main="Effects Imm Continuous Quadratic")
+plot(allEffects(bhm1_imm_cat),ask=FALSE, main="Effects Imm Categorical")
+plot(allEffects(bhm1_imm_cat_new),ask=FALSE, main="Effects Imm Categorical")
+```
+
+```{r political_interestCheckH}
+bhm0$dev - bhm1_polint_con$dev
+bhm0$dev - bhm1_polint_con_sq$dev
+bhm0$dev - bhm1_polint_con_cb$dev
+bhm0$dev - bhm1_polint_con_qd$dev
+bhm0$dev - bhm1_polint_cat$dev
+bhm0$dev - bhm1_polint_cat_new$dev
+
+anova(bhm1_polint_con, bhm1_polint_con_sq, test="Chisq")
+anova(bhm1_polint_con_sq, bhm1_polint_con_cb, test="Chisq")
+anova(bhm1_polint_con_cb, bhm1_polint_con_qd, test="Chisq")
+
+Anova(bhm1_polint_con, test="Wald")
+Anova(bhm1_polint_con_sq, test="Wald")
+Anova(bhm1_polint_con_cb, test="Wald")
+Anova(bhm1_polint_con_qd, test="Wald")
+Anova(bhm1_polint_cat, test="Wald")
+Anova(bhm1_polint_cat_new, test="Wald")
+
+plot(allEffects(bhm1_polint_con),ask=FALSE, main="Effects Political Interest Continuous")
+plot(allEffects(bhm1_polint_con_sq),ask=FALSE,main="Effects Political Interest Continuous Squared")
+plot(allEffects(bhm1_polint_con_cb),ask=FALSE, main="Effects Political Interest Continuous Cubed")
+plot(allEffects(bhm1_polint_con_qd),ask=FALSE, main="Effects Political Interest Continuous Quadratic")
+plot(allEffects(bhm1_polint_cat),ask=FALSE, main="Effects Political Interest Categorical")
+plot(allEffects(bhm1_polint_cat_new),ask=FALSE, main="Effects Political Interest Categorical")
+```
+
+```{r incomeCheckH}
+bhm0$dev - bhm1_inc_con$dev
+bhm0$dev - bhm1_inc_con_sq$dev
+bhm0$dev - bhm1_inc_con_cb$dev
+bhm0$dev - bhm1_inc_con_qd$dev
+bhm0$dev - bhm1_inc_cat$dev
+bhm0$dev - bhm1_inc_cat_new$dev
+
+anova(bhm1_inc_con, bhm1_inc_con_sq, test="Chisq")
+anova(bhm1_inc_con_sq, bhm1_inc_con_cb, test="Chisq")
+anova(bhm1_inc_con_cb, bhm1_inc_con_qd, test="Chisq")
+
+Anova(bhm1_inc_con, test="Wald")
+Anova(bhm1_inc_con_sq, test="Wald")
+Anova(bhm1_inc_con_cb, test="Wald")
+Anova(bhm1_inc_con_qd, test="Wald")
+Anova(bhm1_inc_cat, test="Wald")
+Anova(bhm1_inc_cat_new, test="Wald")
+
+plot(allEffects(bhm1_inc_con),ask=FALSE, main="Effects Income Continuous")
+plot(allEffects(bhm1_inc_con_sq),ask=FALSE,main="Effects Income Continuous Squared")
+plot(allEffects(bhm1_inc_con_cb),ask=FALSE, main="Effects Income Continuous Cubed")
+plot(allEffects(bhm1_inc_con_qd),ask=FALSE, main="Effects Income Interest Continuous Quadratic")
+plot(allEffects(bhm1_inc_cat),ask=FALSE, main="Effects Income Interest Categorical")
+plot(allEffects(bhm1_inc_cat_new),ask=FALSE, main="Effects Income Interest Categorical")
+```
+
+```{r egoposition_immigrationCheckH2}
+bh2m0$dev - bhm2_imm_con$dev
+bh2m0$dev - bhm2_imm_con_sq$dev
+bh2m0$dev - bhm2_imm_con_cb$dev
+bh2m0$dev - bhm2_imm_con_qd$dev
+
+anova(bhm2_imm_con, bhm2_imm_con_sq, test="Chisq")
+anova(bhm2_imm_con_sq, bhm2_imm_con_cb, test="Chisq")
+anova(bhm2_imm_con_cb, bhm2_imm_con_qd, test="Chisq")
+
+Anova(bhm2_imm_con, test="Wald")
+Anova(bhm2_imm_con_sq, test="Wald")
+Anova(bhm2_imm_con_cb, test="Wald")
+Anova(bhm2_imm_con_qd, test="Wald")
+Anova(bhm2_imm_cat, test="Wald")
+Anova(bhm2_imm_cat_new, test="Wald")
+
+plot(allEffects(bhm2_imm_con),ask=FALSE, main="Effects Imm Continuous")
+plot(allEffects(bhm2_imm_con_sq),ask=FALSE,main="Effects Imm Continuous Squared")
+plot(allEffects(bhm2_imm_con_cb),ask=FALSE, main="Effects Imm Continuous Cubed")
+plot(allEffects(bhm2_imm_con_qd),ask=FALSE, main="Effects Imm Continuous Quadratic")
+plot(allEffects(bhm2_imm_cat),ask=FALSE, main="Effects Imm Categorical")
+plot(allEffects(bhm2_imm_cat_new),ask=FALSE, main="Effects Imm Categorical")
+
+# bhm2_imm_con_qd is better concerning AIC 
+```
+
+```{r polIntCheckH2}
+bh2m0$dev - bhm2_polint_con$dev
+bh2m0$dev - bhm2_polint_con_sq$dev
+bh2m0$dev - bhm2_polint_con_cb$dev
+bh2m0$dev - bhm2_polint_con_qd$dev
+
+anova(bhm2_polint_con, bhm2_polint_con_sq, test="Chisq")
+anova(bhm2_polint_con_sq, bhm2_polint_con_cb, test="Chisq")
+anova(bhm2_polint_con_cb, bhm2_polint_con_qd, test="Chisq")
+
+Anova(bhm2_polint_con, test="Wald")
+Anova(bhm2_polint_con_sq, test="Wald")
+Anova(bhm2_polint_con_cb, test="Wald")
+Anova(bhm2_polint_con_qd, test="Wald")
+Anova(bhm2_polint_cat, test="Wald")
+Anova(bhm2_polint_cat_new, test="Wald")
+
+plot(allEffects(bhm2_polint_con),ask=FALSE, main="Effects polint Continuous")
+plot(allEffects(bhm2_polint_con_sq),ask=FALSE,main="Effects polint Continuous Squared")
+plot(allEffects(bhm2_polint_con_cb),ask=FALSE, main="Effects polint Continuous Cubed")
+plot(allEffects(bhm2_polint_con_qd),ask=FALSE, main="Effects polint Continuous Quadratic")
+plot(allEffects(bhm2_polint_cat),ask=FALSE, main="Effects polint Categorical")
+plot(allEffects(bhm2_polint_cat_new),ask=FALSE, main="Effects polint Categorical")
+```
+
+```{r incCheckH2}
+bh2m0$dev - bhm2_inc_con$dev
+bh2m0$dev - bhm2_inc_con_sq$dev
+bh2m0$dev - bhm2_inc_con_cb$dev
+bh2m0$dev - bhm2_inc_con_qd$dev
+
+anova(bhm2_inc_con, bhm2_inc_con_sq, test="Chisq")
+anova(bhm2_inc_con_sq, bhm2_inc_con_cb, test="Chisq")
+anova(bhm2_inc_con_cb, bhm2_inc_con_qd, test="Chisq")
+
+Anova(bhm2_inc_con, test="Wald")
+Anova(bhm2_inc_con_sq, test="Wald")
+Anova(bhm2_inc_con_cb, test="Wald")
+Anova(bhm2_inc_con_qd, test="Wald")
+Anova(bhm2_inc_cat, test="Wald")
+Anova(bhm2_inc_cat_new, test="Wald")
+
+plot(allEffects(bhm2_inc_con),ask=FALSE, main="Effects inc Continuous")
+plot(allEffects(bhm2_inc_con_sq),ask=FALSE,main="Effects inc Continuous Squared")
+plot(allEffects(bhm2_inc_con_cb),ask=FALSE, main="Effects inc Continuous Cubed")
+plot(allEffects(bhm2_inc_con_qd),ask=FALSE, main="Effects inc Continuous Quadratic")
+plot(allEffects(bhm2_inc_cat),ask=FALSE, main="Effects inc Categorical")
+plot(allEffects(bhm2_inc_cat_new),ask=FALSE, main="Effects inc Categorical")
+```
+
+### Influential Data
+
+LAYER 1
+
+```{r}
+residualPlots(layer1, layout=c(2, 1))
+avPlots(layer1,id=list(n=5))
+influenceIndexPlot(layer1,id=list(n=20),vars=c("Cook", "Student","hat"))
+influencePlot(layer1,id=list(method="noteworthy"))
+```
+
+LAYER 2
+
+```{r}
+residualPlots(layer2, layout=c(2, 1))
+avPlots(layer2,id=list(n=5))
+influenceIndexPlot(layer2,id=list(n=20),vars=c("Cook", "Student","hat"))
+influencePlot(layer2,id=list(method="noteworthy"))
+```
